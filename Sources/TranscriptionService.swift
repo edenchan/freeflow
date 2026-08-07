@@ -18,6 +18,9 @@ class TranscriptionService {
     private let baseURL: URL
     private let transcriptionModel: String
     private let language: String?
+    private let includeFillerWords: Bool
+    private let keyTerms: [String]
+    private let provider: any ProviderPreset
     private var transcriptionResponseFormat: String {
         Self.responseFormat(forModel: transcriptionModel)
     }
@@ -28,16 +31,22 @@ class TranscriptionService {
 
     init(
         apiKey: String,
-        baseURL: String = "https://api.groq.com/openai/v1",
-        transcriptionModel: String = "whisper-large-v3",
-        language: String? = nil
+        baseURL: String = GroqProvider.shared.defaults.apiBaseURL,
+        transcriptionModel: String = GroqProvider.shared.defaults.transcriptionModel,
+        language: String? = nil,
+        includeFillerWords: Bool = false,
+        keyTerms: [String] = [],
+        provider: any ProviderPreset = GroqProvider.shared
     ) throws {
         self.apiKey = apiKey
         self.baseURL = try Self.normalizedBaseURL(from: baseURL)
         let trimmedModel = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.transcriptionModel = trimmedModel.isEmpty ? "whisper-large-v3" : trimmedModel
+        self.transcriptionModel = trimmedModel.isEmpty ? GroqProvider.shared.defaults.transcriptionModel : trimmedModel
         let trimmedLanguage = language?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.language = (trimmedLanguage?.isEmpty == false) ? trimmedLanguage : nil
+        self.includeFillerWords = includeFillerWords
+        self.keyTerms = keyTerms
+        self.provider = provider
     }
 
     static func responseFormat(forModel model: String) -> String {
@@ -46,7 +55,10 @@ class TranscriptionService {
     }
 
     // Validate API key by hitting a lightweight endpoint
-    static func validateAPIKey(_ key: String, baseURL: String = "https://api.groq.com/openai/v1") async -> Bool {
+    static func validateAPIKey(
+        _ key: String,
+        baseURL: String = GroqProvider.shared.defaults.apiBaseURL
+    ) async -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         guard let baseURL = try? normalizedBaseURL(from: baseURL) else { return false }
@@ -115,9 +127,7 @@ class TranscriptionService {
     }
 
     private func transcribeAudioWithURLSession(fileURL: URL) async throws -> String {
-        let url = baseURL
-            .appendingPathComponent("audio")
-            .appendingPathComponent("transcriptions")
+        let url = provider.transcriptionURL(from: baseURL)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = transcriptionTimeoutSeconds
@@ -210,18 +220,20 @@ class TranscriptionService {
             body.append(Data(value.utf8))
         }
 
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        append("\(model)\r\n")
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
-        append("\(responseFormat)\r\n")
-
-        if let language, !language.isEmpty {
+        func appendField(name: String, value: String) {
             append("--\(boundary)\r\n")
-            append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            append("\(language)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+
+        for field in provider.transcriptionFormFields(
+            model: model,
+            responseFormat: responseFormat,
+            language: language,
+            includeFillerWords: includeFillerWords,
+            keyTerms: keyTerms
+        ) {
+            appendField(name: field.name, value: field.value)
         }
 
         append("--\(boundary)\r\n")

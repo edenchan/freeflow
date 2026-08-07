@@ -198,9 +198,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case muted(previouslyMuted: Bool)
     }
 
-    private let apiKeyStorageKey = "groq_api_key"
-    private let apiBaseURLStorageKey = "api_base_url"
-    private let transcriptionModelStorageKey = "transcription_model"
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
     private let postProcessingModelStorageKey = "post_processing_model"
@@ -242,7 +239,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     let maxPipelineHistoryCount = 20
     static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
-    static let defaultTranscriptionModel = "whisper-large-v3"
+    static var defaultTranscriptionModel: String { GroqProvider.shared.defaults.transcriptionModel }
     static let transcriptionLanguageOptions: [(code: String, name: String)] = [
         ("", "Auto-detect"),
         ("en", "English"),
@@ -275,9 +272,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         ("hu", "Hungarian"),
         ("ca", "Catalan")
     ]
-    static let defaultPostProcessingModel = "openai/gpt-oss-20b"
-    static let defaultPostProcessingFallbackModel = "qwen/qwen3.6-27b"
-    static let defaultContextModel = "qwen/qwen3.6-27b"
+    static var defaultPostProcessingModel: String { GroqProvider.shared.defaults.postProcessingModel }
+    static var defaultPostProcessingFallbackModel: String { GroqProvider.shared.defaults.postProcessingFallbackModel }
+    static var defaultContextModel: String { GroqProvider.shared.defaults.contextModel }
     private static let deprecatedDefaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
     private static let deprecatedDefaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
     private static let trailingPressEnterCommandPattern = try! NSRegularExpression(
@@ -290,6 +287,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published private(set) var selectedProviderID: String
+
+    var selectedProvider: any ProviderPreset {
+        ProviderRegistry.provider(id: selectedProviderID) ?? ProviderRegistry.default
+    }
+
+    private var isRestoringProviderConfiguration = false
+
     @Published var apiKey: String {
         didSet {
             persistAPIKey(apiKey)
@@ -299,44 +304,44 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @Published var apiBaseURL: String {
         didSet {
-            persistAPIBaseURL(apiBaseURL)
+            persistActiveConfiguration()
             rebuildContextService()
         }
     }
 
     @Published var transcriptionAPIURL: String {
         didSet {
-            persistOptionalAPIValue(transcriptionAPIURL, account: transcriptionAPIURLStorageKey)
+            persistActiveConfiguration()
         }
     }
 
     @Published var transcriptionAPIKey: String {
         didSet {
-            persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
+            persistActiveConfiguration()
         }
     }
 
     @Published var transcriptionModel: String {
         didSet {
-            UserDefaults.standard.set(transcriptionModel, forKey: transcriptionModelStorageKey)
+            persistActiveConfiguration()
         }
     }
 
     @Published var postProcessingModel: String {
         didSet {
-            UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
+            persistActiveConfiguration()
         }
     }
 
     @Published var postProcessingFallbackModel: String {
         didSet {
-            UserDefaults.standard.set(postProcessingFallbackModel, forKey: postProcessingFallbackModelStorageKey)
+            persistActiveConfiguration()
         }
     }
 
     @Published var contextModel: String {
         didSet {
-            UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
+            persistActiveConfiguration()
             rebuildContextService()
         }
     }
@@ -489,7 +494,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// "use the server's default".
     @Published var realtimeStreamingModel: String {
         didSet {
-            UserDefaults.standard.set(realtimeStreamingModel, forKey: realtimeStreamingModelStorageKey)
+            persistActiveConfiguration()
         }
     }
 
@@ -614,7 +619,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var pendingManualCommandInvocation = false
     private var pendingShortcutStartTask: Task<Void, Never>?
     private var pendingShortcutStartMode: RecordingTriggerMode?
-    private var realtimeService: RealtimeTranscriptionService?
+    private var realtimeService: (any LiveTranscriptionSession)?
     private var automaticTerminationDisabled = false
     private var activeAudioInterruption: ActiveAudioInterruption?
     private var pendingOverlayDismissToken: UUID?
@@ -629,16 +634,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
-        let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
-        let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
-        let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
-        let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
-        let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
-        let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
-        let postProcessingFallbackModel = Self.loadStoredPostProcessingFallbackModel(
-            key: postProcessingFallbackModelStorageKey
+        ProviderSettingsStore.migrateLegacyGlobalSettingsIfNeeded()
+        let legacyBaseURL = AppSettingsStorage.load(account: ProviderSettingsStore.legacyAPIBaseURLAccount)
+            ?? GroqProvider.shared.defaults.apiBaseURL
+        let selectedProvider = ProviderRegistry.resolve(
+            id: ProviderSettingsStore.loadSelectedProviderID(),
+            baseURL: legacyBaseURL
         )
-        let contextModel = Self.loadStoredContextModel(key: contextModelStorageKey)
+        ProviderSettingsStore.saveSelectedProviderID(selectedProvider.id)
+        let providerConfiguration = Self.sanitizedConfiguration(
+            ProviderSettingsStore.loadConfiguration(for: selectedProvider)
+        )
+        let apiKey = ProviderSettingsStore.loadAPIKey(for: selectedProvider)
+        let apiBaseURL = providerConfiguration.apiBaseURL
+        let transcriptionModel = providerConfiguration.transcriptionModel
+        let transcriptionAPIURL = providerConfiguration.transcriptionAPIURL
+        let transcriptionAPIKey = providerConfiguration.transcriptionAPIKey
+        let postProcessingModel = providerConfiguration.postProcessingModel
+        let postProcessingFallbackModel = providerConfiguration.postProcessingFallbackModel
+        let contextModel = providerConfiguration.contextModel
         let shortcuts = Self.loadShortcutConfiguration(
             holdKey: holdShortcutStorageKey,
             toggleKey: toggleShortcutStorageKey,
@@ -690,7 +704,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let preserveExactWording = UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
         let keepDictationInClipboardHistory = UserDefaults.standard.bool(forKey: keepDictationInClipboardHistoryStorageKey)
         let realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: realtimeStreamingEnabledStorageKey)
-        let realtimeStreamingModel = UserDefaults.standard.string(forKey: realtimeStreamingModelStorageKey) ?? ""
+        let realtimeStreamingModel = providerConfiguration.realtimeStreamingModel
         let dictationAudioInterruptionEnabled = UserDefaults.standard.bool(
             forKey: dictationAudioInterruptionEnabledStorageKey
         )
@@ -734,6 +748,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextScreenshotMaxDimension: contextScreenshotMaxDimension
         )
         self.hasCompletedSetup = hasCompletedSetup
+        self.selectedProviderID = selectedProvider.id
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
         self.transcriptionAPIURL = transcriptionAPIURL
@@ -836,15 +851,74 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func persistAPIKey(_ value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            AppSettingsStorage.delete(account: apiKeyStorageKey)
-        } else {
-            AppSettingsStorage.save(trimmed, account: apiKeyStorageKey)
-        }
+        guard !isRestoringProviderConfiguration else { return }
+        ProviderSettingsStore.saveAPIKey(value, for: selectedProvider)
     }
 
-    static let defaultAPIBaseURL = "https://api.groq.com/openai/v1"
+    private func persistActiveConfiguration() {
+        guard !isRestoringProviderConfiguration else { return }
+        ProviderSettingsStore.saveConfiguration(activeConfigurationSnapshot(), for: selectedProvider)
+    }
+
+    private func activeConfigurationSnapshot() -> ProviderConfiguration {
+        ProviderConfiguration(
+            apiBaseURL: apiBaseURL,
+            transcriptionModel: transcriptionModel,
+            transcriptionAPIURL: transcriptionAPIURL,
+            transcriptionAPIKey: transcriptionAPIKey,
+            realtimeStreamingModel: realtimeStreamingModel,
+            postProcessingModel: postProcessingModel,
+            postProcessingFallbackModel: postProcessingFallbackModel,
+            contextModel: contextModel
+        )
+    }
+
+    /// Apply the selected preset, saving the current key/config into the previous
+    /// preset's namespace first so switching back restores it.
+    func selectProvider(_ provider: any ProviderPreset, currentKeyDraft: String? = nil) {
+        if !isRestoringProviderConfiguration {
+            ProviderSettingsStore.saveAPIKey(currentKeyDraft ?? apiKey, for: selectedProvider)
+            persistActiveConfiguration()
+        }
+
+        guard provider.id != selectedProviderID else {
+            if let currentKeyDraft {
+                apiKey = currentKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return
+        }
+
+        isRestoringProviderConfiguration = true
+        selectedProviderID = provider.id
+        ProviderSettingsStore.saveSelectedProviderID(provider.id)
+        let configuration = Self.sanitizedConfiguration(
+            ProviderSettingsStore.loadConfiguration(for: provider)
+        )
+        apiBaseURL = configuration.apiBaseURL
+        transcriptionAPIURL = configuration.transcriptionAPIURL
+        transcriptionAPIKey = configuration.transcriptionAPIKey
+        transcriptionModel = configuration.transcriptionModel
+        realtimeStreamingModel = configuration.realtimeStreamingModel
+        postProcessingModel = configuration.postProcessingModel
+        postProcessingFallbackModel = configuration.postProcessingFallbackModel
+        contextModel = configuration.contextModel
+        apiKey = ProviderSettingsStore.loadAPIKey(for: provider)
+        isRestoringProviderConfiguration = false
+        rebuildContextService()
+    }
+
+    private static func sanitizedConfiguration(_ configuration: ProviderConfiguration) -> ProviderConfiguration {
+        var configuration = configuration
+        if configuration.postProcessingFallbackModel == deprecatedDefaultPostProcessingFallbackModel {
+            configuration.postProcessingFallbackModel = GroqProvider.shared.defaults.postProcessingFallbackModel
+        }
+        if configuration.contextModel == deprecatedDefaultContextModel {
+            configuration.contextModel = GroqProvider.shared.defaults.contextModel
+        }
+        return configuration
+    }
+
+    static var defaultAPIBaseURL: String { GroqProvider.shared.defaults.apiBaseURL }
 
     private struct StoredShortcutConfiguration {
         let hold: ShortcutBinding
@@ -864,13 +938,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let binding: ShortcutBinding?
         let hadStoredValue: Bool
         let didNormalize: Bool
-    }
-
-    private static func loadStoredAPIBaseURL(account: String) -> String {
-        if let stored = AppSettingsStorage.load(account: account), !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return stored
-        }
-        return defaultAPIBaseURL
     }
 
     private static func loadStoredContextModel(key: String) -> String {
@@ -990,15 +1057,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextService = makeAppContextService()
     }
 
-    private func persistAPIBaseURL(_ value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == Self.defaultAPIBaseURL {
-            AppSettingsStorage.delete(account: apiBaseURLStorageKey)
-        } else {
-            AppSettingsStorage.save(trimmed, account: apiBaseURLStorageKey)
-        }
-    }
-
     private func persistOptionalAPIValue(_ value: String, account: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -1036,7 +1094,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             apiKey: resolvedTranscriptionAPIKey,
             baseURL: resolvedTranscriptionBaseURL,
             transcriptionModel: transcriptionModel,
-            language: resolvedTranscriptionLanguage
+            language: resolvedTranscriptionLanguage,
+            includeFillerWords: preserveExactWording,
+            provider: selectedProvider
         )
     }
 
@@ -2587,7 +2647,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// gets a transcript. Runs the realtime commit and file upload in that
     /// strict order to avoid paying for both when realtime succeeds.
     private static func resolveRawTranscript(
-        realtimeService: RealtimeTranscriptionService?,
+        realtimeService: (any LiveTranscriptionSession)?,
         fileService: TranscriptionService,
         fileURL: URL
     ) async throws -> String {
@@ -2940,7 +3000,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             model: model,
             language: resolvedTranscriptionLanguage
         )
-        let service = RealtimeTranscriptionService(config: config)
+        let service = selectedProvider.makeRealtimeSession(config: config)
         do {
             try service.start()
         } catch {

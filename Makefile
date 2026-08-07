@@ -72,14 +72,31 @@ endif
 test: $(TEST_RUNNER)
 	@$(TEST_RUNNER)
 
-$(TEST_RUNNER): Sources/AppContextService.swift Sources/LLMAPITransport.swift Sources/ModelConfiguration.swift Tests/AppContextServiceTests.swift
+TEST_SOURCES = \
+	Sources/AppContextService.swift \
+	Sources/AppName.swift \
+	Sources/KeychainStorage.swift \
+	Sources/LLMAPITransport.swift \
+	Sources/ModelConfiguration.swift \
+	Sources/Providers/Groq.swift \
+	Sources/Providers/LiveTranscriptionSession.swift \
+	Sources/Providers/ProviderConfiguration.swift \
+	Sources/Providers/ProviderPreset.swift \
+	Sources/Providers/ProviderRegistry.swift \
+	Sources/Providers/ProviderSettingsStore.swift \
+	Sources/RealtimeTranscriptionService.swift \
+	Sources/TranscriptionService.swift \
+	Tests/AppContextServiceTests.swift \
+	Tests/ProviderPresetTests.swift
+
+$(TEST_RUNNER): $(TEST_SOURCES)
 	@mkdir -p "$(BUILD_DIR)"
 	swiftc \
 		-parse-as-library \
 		-o "$(TEST_RUNNER)" \
 		-sdk $(shell xcrun --show-sdk-path) \
 		-target $(ARCH)-apple-macosx13.0 \
-		Sources/AppContextService.swift Sources/LLMAPITransport.swift Sources/ModelConfiguration.swift Tests/AppContextServiceTests.swift
+		$(TEST_SOURCES)
 
 icon: $(ICON_ICNS)
 

@@ -981,8 +981,10 @@ struct GeneralSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            ProviderPicker(selectionID: providerSelectionBinding)
+
             HStack(spacing: 8) {
-                SecureField("Enter your Groq API key", text: $apiKeyInput)
+                SecureField(appState.selectedProvider.keyPlaceholder, text: $apiKeyInput)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
                     .disabled(isValidatingKey)
@@ -1029,6 +1031,22 @@ struct GeneralSettingsView: View {
             }
             .padding(.top, 4)
         }
+    }
+
+    private var providerSelectionBinding: Binding<String> {
+        Binding(
+            get: { appState.selectedProviderID },
+            set: { id in
+                guard let provider = ProviderRegistry.provider(id: id) else { return }
+                appState.selectProvider(provider, currentKeyDraft: apiKeyInput)
+                apiBaseURLInput = appState.apiBaseURL
+                transcriptionAPIURLInput = appState.transcriptionAPIURL
+                transcriptionAPIKeyInput = appState.transcriptionAPIKey
+                apiKeyInput = appState.apiKey
+                keyValidationError = nil
+                keyValidationSuccess = false
+            }
+        )
     }
 
     private func validateAndSaveKey() {
