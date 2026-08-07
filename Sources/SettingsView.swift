@@ -335,7 +335,7 @@ struct ProviderSettingsFields: View {
                 "Stream audio while recording (realtime)",
                 isOn: $appState.realtimeStreamingEnabled
             )
-            Text("Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.")
+            Text("Streams audio while you speak using the selected provider's realtime transcription API.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -977,7 +977,7 @@ struct GeneralSettingsView: View {
 
     private var apiKeySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(AppName.displayName) uses the configured transcription model with your selected OpenAI-compatible provider.")
+            Text("Pick a provider, then paste one API key. FreeFlow uses it for transcription, cleanup, and context.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

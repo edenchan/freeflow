@@ -33,6 +33,9 @@ protocol ProviderPreset: Sendable {
     func makeRealtimeSession(
         config: RealtimeTranscriptionService.Configuration
     ) -> any LiveTranscriptionSession
+
+    /// Optional vocabulary hints for providers that support them (e.g. Grok `keyterm`).
+    func vocabularyKeyTerms(from raw: String) -> [String]
 }
 
 extension ProviderPreset {
@@ -79,5 +82,9 @@ extension ProviderPreset {
         config: RealtimeTranscriptionService.Configuration
     ) -> any LiveTranscriptionSession {
         RealtimeTranscriptionService(config: config)
+    }
+
+    func vocabularyKeyTerms(from raw: String) -> [String] {
+        []
     }
 }

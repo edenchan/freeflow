@@ -30,8 +30,8 @@ FreeFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 ## Quick Start
 
 1. Download the app from above or [click here](https://github.com/zachlatta/freeflow/releases/latest/download/FreeFlow.dmg)
-2. Get a free Groq API key from [groq.com](https://groq.com/)
-3. Hold `Fn` to talk, or tap `Command-Fn` to start and stop dictation, and have whatever you say pasted into the current text field
+2. Get a free Groq API key from [groq.com](https://groq.com/), or an xAI key from [console.x.ai](https://console.x.ai)
+3. In setup, pick **Groq** or **Grok (xAI)**, paste that one key, then hold `Fn` to talk (or tap `Command-Fn` to toggle)
 
 ## Features
 
@@ -39,6 +39,17 @@ FreeFlow is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.
 - **Context-aware cleanup:** FreeFlow can read nearby app context so names, terms, and phrases are spelled correctly when you dictate into email, terminals, docs, and other apps.
 - **Custom vocabulary:** Add names, jargon, and project-specific words that FreeFlow should preserve during cleanup.
 - **OpenAI-compatible providers:** Use Groq by default, or configure a custom model and API URL in settings.
+- **xAI / Grok:** Choose **Grok (xAI)** in setup or Settings, paste one xAI API key, and FreeFlow uses Grok STT plus Grok models for cleanup and context.
+
+## Using xAI / Grok
+
+Choose **Grok (xAI)** in setup or Settings and paste one key from [console.x.ai](https://console.x.ai). That key is used for:
+
+- Speech-to-text via Grok STT (`POST /v1/stt` and realtime `wss://api.x.ai/v1/stt`)
+- Transcript cleanup and Edit Mode (`grok-4.5`, fallback `grok-4.3`)
+- Screenshot context (`grok-4.5`)
+
+Custom vocabulary is sent as Grok `keyterm` hints. You can still override individual model IDs or mix providers under Advanced Provider Settings.
 
 ## Edit Mode
 

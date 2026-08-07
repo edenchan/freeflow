@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [Unreleased]
+
+### Added
+
+- xAI as a first-class provider. Choose Grok (xAI) in setup or Settings, paste one API key, and FreeFlow uses Grok STT (`POST /v1/stt` and `wss://api.x.ai/v1/stt`) plus Grok models for cleanup and context. Groq and xAI keys are stored separately.
+
 ## [1.2.0] - 2026-07-14
 
 ### Added

@@ -13,7 +13,8 @@ enum ProviderPresetTests {
     private static func testRegistryDefaultsToGroq() {
         expect(ProviderRegistry.default.id == "groq", "Default preset should be Groq")
         expect(ProviderRegistry.all.contains(where: { $0.id == "groq" }), "Groq should be registered")
-        expectEqual(ProviderRegistry.all.count, 1)
+        expect(ProviderRegistry.all.contains(where: { $0.id == "xai" }), "Grok (xAI) should be registered")
+        expectEqual(ProviderRegistry.all.count, 2)
     }
 
     private static func testGroqMatchesHostedAPI() {

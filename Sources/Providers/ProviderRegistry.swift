@@ -3,7 +3,7 @@ import Foundation
 /// All built-in provider presets. Register additional presets here.
 enum ProviderRegistry {
     static var all: [any ProviderPreset] {
-        [GroqProvider.shared]
+        [GroqProvider.shared, GrokProvider.shared]
     }
 
     static var `default`: any ProviderPreset { GroqProvider.shared }

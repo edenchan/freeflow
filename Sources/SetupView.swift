@@ -15,7 +15,7 @@ private struct SetupProviderSettingsSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Advanced Provider Settings")
                     .font(.title2.weight(.semibold))
-                Text("Use these fields when pointing \(AppName.displayName) at another OpenAI-compatible provider or when you need custom model IDs.")
+                Text("Use these fields for a custom OpenAI-compatible server, or to mix providers. Groq and Grok (xAI) can be selected on the API Key step with one key.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -397,7 +397,7 @@ struct SetupView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Enter an API key for your OpenAI-compatible provider. If you are not using Groq, expand the advanced provider settings and enter that provider's base URL and model IDs before continuing.")
+                Text("Pick Groq or Grok (xAI), then paste one API key. FreeFlow uses it for transcription, cleanup, and context. Advanced settings are only needed for a custom or mixed provider.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

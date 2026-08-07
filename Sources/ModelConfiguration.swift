@@ -15,19 +15,19 @@ public struct ModelConfiguration {
         "qwen/qwen3.6-27b",
         "groq/compound",
         "groq/compound-mini"
-    ]
+    ] + GrokProvider.llmModels
 
     // MARK: - Vision-capable models
 
     /// Models that accept image input. The context model must support vision for screenshot analysis to work.
     public static let visionModels = [
         "qwen/qwen3.6-27b"
-    ]
+    ] + GrokProvider.visionModels
 
     public static let transcriptionModels = [
         "whisper-large-v3",
         "whisper-large-v3-turbo"
-    ]
+    ] + GrokProvider.transcriptionModels
 
     public static func config(for model: String) -> ModelConfig {
         var cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -38,6 +38,10 @@ public struct ModelConfiguration {
         else if cleanModel == "gpt-oss-20b" { cleanModel = "openai/gpt-oss-20b" }
         else if cleanModel == "gpt-oss-120b" { cleanModel = "openai/gpt-oss-120b" }
         else if cleanModel == "gpt-oss-safeguard-20b" { cleanModel = "openai/gpt-oss-safeguard-20b" }
+
+        if let grokConfig = GrokProvider.modelConfig(for: cleanModel) {
+            return grokConfig
+        }
         
         if cleanModel == "openai/gpt-oss-20b" {
             return ModelConfig(

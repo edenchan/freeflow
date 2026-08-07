@@ -635,6 +635,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
         ProviderSettingsStore.migrateLegacyGlobalSettingsIfNeeded()
+        GrokProvider.migrateLegacySharedKeyIfNeeded()
         let legacyBaseURL = AppSettingsStorage.load(account: ProviderSettingsStore.legacyAPIBaseURLAccount)
             ?? GroqProvider.shared.defaults.apiBaseURL
         let selectedProvider = ProviderRegistry.resolve(
@@ -1096,6 +1097,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionModel: transcriptionModel,
             language: resolvedTranscriptionLanguage,
             includeFillerWords: preserveExactWording,
+            keyTerms: selectedProvider.vocabularyKeyTerms(from: customVocabulary),
             provider: selectedProvider
         )
     }
@@ -2998,7 +3000,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: trimmedBase,
             apiKey: resolvedTranscriptionAPIKey,
             model: model,
-            language: resolvedTranscriptionLanguage
+            language: resolvedTranscriptionLanguage,
+            keyTerms: selectedProvider.vocabularyKeyTerms(from: customVocabulary),
+            includeFillerWords: preserveExactWording
         )
         let service = selectedProvider.makeRealtimeSession(config: config)
         do {

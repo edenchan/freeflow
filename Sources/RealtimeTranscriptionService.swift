@@ -25,6 +25,8 @@ final class RealtimeTranscriptionService: LiveTranscriptionSession {
         let apiKey: String
         let model: String
         let language: String?
+        var keyTerms: [String] = []
+        var includeFillerWords: Bool = false
     }
 
     private let config: Configuration
