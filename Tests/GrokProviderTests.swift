@@ -50,7 +50,7 @@ enum GrokProviderTests {
         )
         expectEqual(
             stringifyFields(fields),
-            "language=en | format=true | filler_words=false | keyterm=FreeFlow | keyterm=xAI"
+            "language=en | format=true | filler_words=true | keyterm=FreeFlow | keyterm=xAI"
         )
 
         let chinese = GrokProvider.shared.transcriptionFormFields(
@@ -96,6 +96,14 @@ enum GrokProviderTests {
         expect(string.contains("filler_words=false"), "Missing filler_words: \(string)")
         expect(string.contains("language=en"), "Missing language: \(string)")
         expect(string.contains("format=true"), "Missing format=true ITN: \(string)")
+
+        let withFillers = GrokProvider.streamingWebSocketURL(
+            baseURL: "https://api.x.ai/v1",
+            language: "en",
+            keyTerms: [],
+            includeFillerWords: true
+        )?.absoluteString ?? ""
+        expect(withFillers.contains("filler_words=true"), "includeFillerWords must map to filler_words: \(withFillers)")
         expect(string.contains("keyterm=FreeFlow"), "Missing keyterm: \(string)")
 
         let phrase = GrokProvider.streamingWebSocketURL(

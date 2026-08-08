@@ -1286,7 +1286,7 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Preserve exact wording", isOn: $appState.preserveExactWording)
 
-            Text("Default is on: paste the raw transcript with no LLM cleanup. Turn off to run cleanup. Voice macros and Edit Mode still run.")
+            Text("Default is on: paste the raw STT transcript (no LLM). Grok still strips uh/um via filler_words=false. Turn off to also remove repeats and clean phrasing. Voice macros and Edit Mode still run.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

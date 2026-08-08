@@ -90,16 +90,12 @@ struct GrokProvider: ProviderPreset {
     ) -> [(name: String, value: String)] {
         var fields: [(String, String)] = []
 
-        if let language, !language.isEmpty {
-            fields.append(("language", language))
-            if Self.formattingLanguages.contains(language) {
-                fields.append(("format", "true"))
-            }
+        let languageCode = Self.languageForAPI(language)
+        fields.append(("language", languageCode))
+        if Self.formattingLanguages.contains(languageCode) {
+            fields.append(("format", "true"))
         }
-
-        // API default is false (strip uh/um). Exact wording is LLM-only; don't
-        // force fillers on just because cleanup is skipped.
-        fields.append(("filler_words", "false"))
+        fields.append(("filler_words", includeFillerWords ? "true" : "false"))
 
         for term in keyTerms.prefix(Self.maxKeyTerms) {
             let trimmed = String(term.prefix(Self.maxKeyTermLength))
@@ -212,7 +208,7 @@ struct GrokProvider: ProviderPreset {
         queryItems.append(URLQueryItem(name: "encoding", value: "pcm"))
         queryItems.append(URLQueryItem(name: "interim_results", value: "true"))
         queryItems.append(URLQueryItem(name: "endpointing", value: String(streamingEndpointingMs)))
-        queryItems.append(URLQueryItem(name: "filler_words", value: "false"))
+        queryItems.append(URLQueryItem(name: "filler_words", value: includeFillerWords ? "true" : "false"))
         queryItems.append(URLQueryItem(name: "language", value: languageCode))
         if formattingLanguages.contains(languageCode) {
             queryItems.append(URLQueryItem(name: "format", value: "true"))

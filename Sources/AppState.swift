@@ -1099,7 +1099,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: resolvedTranscriptionBaseURL,
             transcriptionModel: transcriptionModel,
             language: resolvedTranscriptionLanguage,
-            includeFillerWords: preserveExactWording,
+            includeFillerWords: selectedProvider.id == GrokProvider.shared.id
+                ? false
+                : preserveExactWording,
             keyTerms: selectedProvider.vocabularyKeyTerms(from: customVocabulary),
             provider: selectedProvider
         )
@@ -3022,7 +3024,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             model: model,
             language: resolvedTranscriptionLanguage,
             keyTerms: selectedProvider.vocabularyKeyTerms(from: customVocabulary),
-            includeFillerWords: preserveExactWording
+            includeFillerWords: selectedProvider.id == GrokProvider.shared.id
+                ? false
+                : preserveExactWording
         )
         let service = selectedProvider.makeRealtimeSession(config: config)
         do {
