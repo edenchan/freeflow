@@ -203,14 +203,18 @@ struct GrokProvider: ProviderPreset {
         components.path = path
 
         var queryItems = (components.queryItems ?? []).filter { item in
-            !["sample_rate", "encoding", "interim_results", "filler_words", "language", "keyterm", "endpointing"].contains(item.name)
+            !["sample_rate", "encoding", "interim_results", "filler_words", "language", "keyterm", "endpointing", "format"].contains(item.name)
         }
+        let languageCode = languageForAPI(language)
         queryItems.append(URLQueryItem(name: "sample_rate", value: String(sampleRate)))
         queryItems.append(URLQueryItem(name: "encoding", value: "pcm"))
         queryItems.append(URLQueryItem(name: "interim_results", value: "true"))
         queryItems.append(URLQueryItem(name: "endpointing", value: String(streamingEndpointingMs)))
         queryItems.append(URLQueryItem(name: "filler_words", value: includeFillerWords ? "true" : "false"))
-        queryItems.append(URLQueryItem(name: "language", value: languageForAPI(language)))
+        queryItems.append(URLQueryItem(name: "language", value: languageCode))
+        if formattingLanguages.contains(languageCode) {
+            queryItems.append(URLQueryItem(name: "format", value: "true"))
+        }
         for term in keyTerms.prefix(maxKeyTerms) {
             let trimmedTerm = String(term.prefix(maxKeyTermLength))
             guard !trimmedTerm.isEmpty else { continue }

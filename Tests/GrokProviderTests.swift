@@ -94,6 +94,7 @@ enum GrokProviderTests {
         expect(string.contains("endpointing=400"), "Missing endpointing: \(string)")
         expect(string.contains("filler_words=false"), "Missing filler_words: \(string)")
         expect(string.contains("language=en"), "Missing language: \(string)")
+        expect(string.contains("format=true"), "Missing format=true ITN: \(string)")
         expect(string.contains("keyterm=FreeFlow"), "Missing keyterm: \(string)")
 
         let autoLanguage = GrokProvider.streamingWebSocketURL(
