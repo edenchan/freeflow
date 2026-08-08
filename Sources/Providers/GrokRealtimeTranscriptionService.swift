@@ -3,6 +3,44 @@ import os.log
 
 private let grokRealtimeLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "GrokRealtimeTranscription")
 
+/// Accumulates streaming STT across pauses. `speech_final` is one utterance
+/// since the last pause; `transcript.done` after `audio.done` is often only
+/// the last utterance (server drainer resets on each speech_final).
+struct GrokSTTAssembler {
+    private(set) var committed: [String] = []
+    private var openFinals: [String] = []
+    private var interim = ""
+
+    mutating func apply(text: String, isFinal: Bool, speechFinal: Bool) {
+        if speechFinal {
+            if !text.isEmpty { committed.append(text) }
+            openFinals = []
+            interim = ""
+        } else if isFinal {
+            if !text.isEmpty { openFinals.append(text) }
+            interim = ""
+        } else {
+            interim = text
+        }
+    }
+
+    func assembled() -> String {
+        (committed + openFinals + [interim])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// Prefer the longer of local accumulation vs server `transcript.done`.
+    func pickDone(_ server: String) -> String {
+        let local = assembled()
+        let remote = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        if remote.isEmpty { return local }
+        if local.isEmpty { return remote }
+        return local.count >= remote.count ? local : remote
+    }
+}
+
 /// xAI Grok STT streaming client (`wss://api.x.ai/v1/stt`).
 ///
 /// Protocol differs from OpenAI Realtime: configuration is query params,
@@ -46,8 +84,7 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
     private var commitSent = false
     private var closed = false
     private var terminalError: Error?
-    private var finalizedParts: [String] = []
-    private var currentInterim = ""
+    private var assembler = GrokSTTAssembler()
     private var doneText: String?
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var finalContinuation: CheckedContinuation<String, Error>?
@@ -148,9 +185,9 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            let assembled = stateQueue.sync { assembledTranscript() }
+            let assembled = stateQueue.sync { assembler.assembled() }
             cancel()
-            if let assembled, !assembled.isEmpty {
+            if !assembled.isEmpty {
                 return assembled
             }
             throw error
@@ -201,10 +238,13 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
                 self.finalContinuation = nil
                 if let doneText {
                     finalResult = (finalContinuation, .success(doneText))
-                } else if let assembled = assembledTranscript(), !assembled.isEmpty {
-                    finalResult = (finalContinuation, .success(assembled))
                 } else {
-                    finalResult = (finalContinuation, .failure(readyError))
+                    let assembled = assembler.assembled()
+                    if !assembled.isEmpty {
+                        finalResult = (finalContinuation, .success(assembled))
+                    } else {
+                        finalResult = (finalContinuation, .failure(readyError))
+                    }
                 }
             }
         }
@@ -261,20 +301,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         let speechFinal = boolValue(json["speech_final"])
 
         let snapshot: String = stateQueue.sync {
-            if speechFinal {
-                if !text.isEmpty {
-                    finalizedParts = [text]
-                }
-                currentInterim = ""
-            } else if isFinal {
-                if !text.isEmpty {
-                    finalizedParts.append(text)
-                }
-                currentInterim = ""
-            } else {
-                currentInterim = text
-            }
-            return assembledTranscript() ?? ""
+            assembler.apply(text: text, isFinal: isFinal, speechFinal: speechFinal)
+            return assembler.assembled()
         }
         if !snapshot.isEmpty {
             reportPartial(snapshot)
@@ -287,7 +315,7 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         var pendingResume: (CheckedContinuation<String, Error>, String)?
         var currentTask: URLSessionWebSocketTask?
         stateQueue.sync {
-            doneText = text.isEmpty ? (assembledTranscript() ?? "") : text
+            doneText = assembler.pickDone(text)
             closed = true
             outbound = []
             sending = false
@@ -301,19 +329,6 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         if let (cont, result) = pendingResume {
             cont.resume(returning: result)
         }
-    }
-
-    private func assembledTranscript() -> String? {
-        var parts = finalizedParts
-        let interim = currentInterim.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !interim.isEmpty {
-            parts.append(interim)
-        }
-        let joined = parts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return joined.isEmpty ? nil : joined
     }
 
     private func waitUntilReady(timeout: TimeInterval) async throws {

@@ -9,6 +9,7 @@ enum GrokProviderTests {
         testKeyTermsParseDedupeAndCap()
         testStreamingWebSocketURL()
         testPTTFinalizeJSON()
+        testAssemblerKeepsUtterancesAcrossPauses()
         testGrokModelsArePredefined()
         testGrokCleanupUsesLowReasoning()
         print("GrokProviderTests passed")
@@ -129,6 +130,19 @@ enum GrokProviderTests {
 
     private static func testPTTFinalizeJSON() {
         expectEqual(GrokRealtimeTranscriptionService.pttFinalizeJSON, #"{"type":"Finalize"}"#)
+    }
+
+    private static func testAssemblerKeepsUtterancesAcrossPauses() {
+        var asm = GrokSTTAssembler()
+        asm.apply(text: "1, 2, 3", isFinal: true, speechFinal: true)
+        asm.apply(text: "4, 6", isFinal: true, speechFinal: true)
+        expectEqual(asm.assembled(), "1, 2, 3 4, 6")
+        expectEqual(asm.pickDone("4, 6"), "1, 2, 3 4, 6")
+        expectEqual(asm.pickDone(""), "1, 2, 3 4, 6")
+
+        var single = GrokSTTAssembler()
+        single.apply(text: "hello world", isFinal: true, speechFinal: true)
+        expectEqual(single.pickDone("hello world"), "hello world")
     }
 
     private static func testGrokModelsArePredefined() {
