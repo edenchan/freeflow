@@ -1888,6 +1888,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func cancelTranscription() {
         guard isTranscribing else { return }
 
+        tearDownRealtimeService()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         contextCaptureTask?.cancel()

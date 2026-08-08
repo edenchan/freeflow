@@ -41,6 +41,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
     private let stateQueue = DispatchQueue(label: "com.zachlatta.freeflow.grok.realtime.state")
     private var isReady = false
     private var pendingChunks: [Data] = []
+    private var outbound: [URLSessionWebSocketTask.Message] = []
+    private var sending = false
     private var commitSent = false
     private var closed = false
     private var terminalError: Error?
@@ -90,6 +92,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         let currentTask: URLSessionWebSocketTask? = stateQueue.sync {
             let currentTask = task
             task = nil
+            outbound = []
+            sending = false
             guard !closed else { return currentTask }
             closed = true
             readyCont = readyContinuation
@@ -106,69 +110,46 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
 
     func appendPCM16(_ data: Data) {
         guard !data.isEmpty else { return }
-        var frameToSend: (URLSessionWebSocketTask, Data)?
         stateQueue.sync {
             guard !closed, !commitSent else { return }
-            if isReady, let task {
-                frameToSend = (task, data)
+            if isReady {
+                enqueueLocked(.data(data))
             } else {
                 if pendingChunks.count == 1024 { pendingChunks.removeFirst() }
                 pendingChunks.append(data)
             }
-        }
-        if let (task, payload) = frameToSend {
-            sendBinary(payload, over: task)
         }
     }
 
     func commitAndAwaitFinal() async throws -> String {
         try await waitUntilReady(timeout: 8)
 
-        let currentTask: URLSessionWebSocketTask? = stateQueue.sync {
-            task
-        }
-        guard let currentTask else {
-            throw RealtimeTranscriptionError.notConnected
-        }
-
-        let leftover: [Data] = stateQueue.sync {
+        let connected: Bool = stateQueue.sync {
+            guard task != nil, !closed else { return false }
             let leftover = pendingChunks
             pendingChunks = []
             commitSent = true
-            return leftover
+            for chunk in leftover {
+                enqueueLocked(.data(chunk))
+            }
+            enqueueLocked(.string(#"{"type":"audio.done"}"#))
+            return true
         }
-        for chunk in leftover {
-            sendBinary(chunk, over: currentTask)
+        guard connected else {
+            throw RealtimeTranscriptionError.notConnected
         }
 
-        sendJSON(["type": "audio.done"], over: currentTask)
-
-        return try await withCheckedThrowingContinuation { continuation in
-            var immediateResult: Result<String, Error>?
-            stateQueue.sync {
-                if let terminalError {
-                    immediateResult = .failure(terminalError)
-                    return
-                }
-                if closed {
-                    if let doneText {
-                        immediateResult = .success(doneText)
-                    } else {
-                        immediateResult = .failure(RealtimeTranscriptionError.closedBeforeFinal)
-                    }
-                    return
-                }
-                if let doneText {
-                    closed = true
-                    immediateResult = .success(doneText)
-                    return
-                }
-                finalContinuation = continuation
+        do {
+            return try await awaitFinal(timeout: Self.finalTimeout)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let assembled = stateQueue.sync { assembledTranscript() }
+            cancel()
+            if let assembled, !assembled.isEmpty {
+                return assembled
             }
-            if let immediateResult {
-                currentTask.cancel(with: .normalClosure, reason: nil)
-                continuation.resume(with: immediateResult)
-            }
+            throw error
         }
     }
 
@@ -207,6 +188,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         stateQueue.sync {
             guard !closed else { return }
             closed = true
+            outbound = []
+            sending = false
             readyError = terminalError ?? RealtimeTranscriptionError.closedBeforeFinal
             readyCont = readyContinuation
             readyContinuation = nil
@@ -253,20 +236,18 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
     }
 
     private func markReadyAndFlush() {
-        var frames: [(URLSessionWebSocketTask, Data)] = []
         var readyCont: CheckedContinuation<Void, Error>?
         stateQueue.sync {
             isReady = true
             readyCont = readyContinuation
             readyContinuation = nil
-            guard let task, !pendingChunks.isEmpty, !commitSent else { return }
-            frames = pendingChunks.map { (task, $0) }
+            guard !pendingChunks.isEmpty, !commitSent else { return }
+            for chunk in pendingChunks {
+                enqueueLocked(.data(chunk))
+            }
             pendingChunks = []
         }
         readyCont?.resume()
-        for (task, payload) in frames {
-            sendBinary(payload, over: task)
-        }
     }
 
     private func applyPartial(_ json: [String: Any]) {
@@ -302,16 +283,14 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         var pendingResume: (CheckedContinuation<String, Error>, String)?
         var currentTask: URLSessionWebSocketTask?
         stateQueue.sync {
-            if !text.isEmpty {
-                doneText = text
-            } else {
-                doneText = assembledTranscript()
-            }
+            doneText = text.isEmpty ? (assembledTranscript() ?? "") : text
             closed = true
+            outbound = []
+            sending = false
             currentTask = task
-            if let finalContinuation, let doneText {
+            if let finalContinuation {
                 self.finalContinuation = nil
-                pendingResume = (finalContinuation, doneText)
+                pendingResume = (finalContinuation, doneText ?? "")
             }
         }
         currentTask?.cancel(with: .normalClosure, reason: nil)
@@ -378,6 +357,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         stateQueue.sync {
             terminalError = error
             closed = true
+            outbound = []
+            sending = false
             currentTask = task
             readyCont = readyContinuation
             readyContinuation = nil
@@ -396,22 +377,78 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
         }
     }
 
-    private func sendBinary(_ data: Data, over task: URLSessionWebSocketTask) {
-        task.send(.data(data)) { error in
-            if let error {
-                os_log(.error, log: grokRealtimeLog, "binary send failed: %{public}@", error.localizedDescription)
+    /// One in-flight WS write, like Grok Build's writer task. Must run on `stateQueue`.
+    private func enqueueLocked(_ message: URLSessionWebSocketTask.Message) {
+        guard !closed, task != nil else { return }
+        outbound.append(message)
+        pumpLocked()
+    }
+
+    private func pumpLocked() {
+        guard !sending, let task, let next = outbound.first else { return }
+        outbound.removeFirst()
+        sending = true
+        task.send(next) { [weak self] error in
+            guard let self else { return }
+            self.stateQueue.async {
+                self.sending = false
+                if let error {
+                    os_log(.error, log: grokRealtimeLog, "send failed: %{public}@", error.localizedDescription)
+                }
+                guard !self.closed else { return }
+                self.pumpLocked()
             }
         }
     }
 
-    private func sendJSON(_ payload: [String: Any], over task: URLSessionWebSocketTask) {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: data, encoding: .utf8) else {
-            return
+    private static var finalTimeout: TimeInterval {
+        let override = UserDefaults.standard.double(forKey: "transcription_timeout_seconds")
+        return override > 0 ? override : 20
+    }
+
+    private func awaitFinal(timeout: TimeInterval) async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await self.awaitFinalUnbounded()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw RealtimeTranscriptionError.serverError(
+                    code: "timeout",
+                    message: "Timed out waiting for Grok STT final transcript"
+                )
+            }
+            let value = try await group.next()!
+            group.cancelAll()
+            return value
         }
-        task.send(.string(text)) { error in
-            if let error {
-                os_log(.error, log: grokRealtimeLog, "json send failed: %{public}@", error.localizedDescription)
+    }
+
+    private func awaitFinalUnbounded() async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            var immediate: Result<String, Error>?
+            var currentTask: URLSessionWebSocketTask?
+            stateQueue.sync {
+                if let terminalError {
+                    immediate = .failure(terminalError)
+                    return
+                }
+                if closed {
+                    immediate = doneText.map { .success($0) }
+                        ?? .failure(RealtimeTranscriptionError.closedBeforeFinal)
+                    return
+                }
+                if let doneText {
+                    closed = true
+                    currentTask = task
+                    immediate = .success(doneText)
+                    return
+                }
+                finalContinuation = continuation
+            }
+            if let immediate {
+                currentTask?.cancel(with: .normalClosure, reason: nil)
+                continuation.resume(with: immediate)
             }
         }
     }
