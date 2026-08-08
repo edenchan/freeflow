@@ -54,6 +54,9 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
 
     var onPartialUpdate: ((String) -> Void)?
 
+    /// PTT release: force `speech_final` now. Voice API example: `{"type":"Finalize"}`.
+    static let pttFinalizeJSON = #"{"type":"Finalize"}"#
+
     init(config: Configuration, session: URLSession = .shared) {
         self.config = config
         self.session = session
@@ -132,6 +135,7 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
             for chunk in leftover {
                 enqueueLocked(.data(chunk))
             }
+            enqueueLocked(.string(Self.pttFinalizeJSON))
             enqueueLocked(.string(#"{"type":"audio.done"}"#))
             return true
         }

@@ -8,6 +8,7 @@ enum GrokProviderTests {
         testGrokFormFieldsOrderAndFormatting()
         testKeyTermsParseDedupeAndCap()
         testStreamingWebSocketURL()
+        testPTTFinalizeJSON()
         testGrokModelsArePredefined()
         testGrokCleanupUsesLowReasoning()
         print("GrokProviderTests passed")
@@ -116,6 +117,10 @@ enum GrokProviderTests {
         )?.absoluteString ?? ""
         expect(!autoLanguage.contains("language=auto"), "must never send language=auto: \(autoLanguage)")
         expectEqual(GrokProvider.languageForAPI("ja"), "ja")
+    }
+
+    private static func testPTTFinalizeJSON() {
+        expectEqual(GrokRealtimeTranscriptionService.pttFinalizeJSON, #"{"type":"Finalize"}"#)
     }
 
     private static func testGrokModelsArePredefined() {
