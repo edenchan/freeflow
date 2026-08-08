@@ -97,6 +97,17 @@ enum GrokProviderTests {
         expect(string.contains("format=true"), "Missing format=true ITN: \(string)")
         expect(string.contains("keyterm=FreeFlow"), "Missing keyterm: \(string)")
 
+        let phrase = GrokProvider.streamingWebSocketURL(
+            baseURL: "https://api.x.ai/v1",
+            language: "en",
+            keyTerms: ["Understand The Universe"],
+            includeFillerWords: false
+        )?.absoluteString ?? ""
+        expect(
+            phrase.contains("keyterm=Understand") && (phrase.contains("The") && phrase.contains("Universe")),
+            "multi-word keyterm must be on the wire: \(phrase)"
+        )
+
         let autoLanguage = GrokProvider.streamingWebSocketURL(
             baseURL: "https://api.x.ai/v1",
             language: "auto",

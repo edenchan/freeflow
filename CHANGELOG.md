@@ -13,7 +13,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 ### Added
 
 - xAI as a first-class provider. Choose Grok (xAI) in setup or Settings, paste one API key, and FreeFlow uses Grok STT (`POST /v1/stt` and `wss://api.x.ai/v1/stt`) plus Grok models for cleanup and context. Groq and xAI keys are stored separately.
-- Grok live STT finalizes when the mic stops (existing Stream audio while recording toggle). Ordinary dictation skips LLM cleanup and screenshots; turn off Preserve exact wording to opt back into cleanup. The live socket serializes PCM then `audio.done`, times out like batch STT, and is cancelled with the spinner. Streaming sends `format=true` (ITN) with language, matching batch STT. Grok always uses the STT `filler_words=false` default (strip uh/um); exact wording no longer forces fillers on.
+- Grok live STT finalizes when the mic stops (existing Stream audio while recording toggle). Ordinary dictation skips LLM cleanup and screenshots; turn off Preserve exact wording to opt back into cleanup. The live socket serializes PCM then `audio.done`, times out like batch STT, and is cancelled with the spinner. Streaming sends `format=true` (ITN) with language, matching batch STT. Grok always uses the STT `filler_words=false` default (strip uh/um); exact wording no longer forces fillers on. Custom vocabulary is sent as repeated `keyterm` query params on live Grok STT.
 
 ## [1.2.0] - 2026-07-14
 

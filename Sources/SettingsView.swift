@@ -1416,7 +1416,9 @@ struct GeneralSettingsView: View {
 
     private var vocabularySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Words and phrases to preserve during post-processing.")
+            Text(appState.selectedProviderID == GrokProvider.shared.id
+                 ? "Sent to Grok STT as keyterm hints (live and batch), and preserved in cleanup."
+                 : "Words and phrases to preserve during post-processing.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
