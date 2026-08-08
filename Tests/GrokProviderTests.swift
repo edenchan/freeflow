@@ -49,7 +49,7 @@ enum GrokProviderTests {
         )
         expectEqual(
             stringifyFields(fields),
-            "language=en | format=true | filler_words=true | keyterm=FreeFlow | keyterm=xAI"
+            "language=en | format=true | filler_words=false | keyterm=FreeFlow | keyterm=xAI"
         )
 
         let chinese = GrokProvider.shared.transcriptionFormFields(
