@@ -673,7 +673,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         os_log(.info, log: recordingLog, "startRecording() complete: %.3fms total", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
     }
 
-    func stopRecording(completion: @escaping (URL?) -> Void) {
+    func stopRecording(
+        onCaptureStopped: (() -> Void)? = nil,
+        completion: @escaping (URL?) -> Void
+    ) {
         let count = _bufferCount.withLock { $0 }
         let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
         os_log(.info, log: recordingLog, "stopRecording() called: %.3fms after start, %d buffers received", elapsed, count)
@@ -681,6 +684,9 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         sessionQueue.async {
             self.cancelWatchdog()
             self.teardownSessionLocked()
+            if let onCaptureStopped {
+                DispatchQueue.main.async(execute: onCaptureStopped)
+            }
             let outputURL = self.finishAudioFileLocked(discard: false)
             self._recording.withLock { $0 = false }
             self.liveLevelNormalizerLock.withLock { $0.reset() }

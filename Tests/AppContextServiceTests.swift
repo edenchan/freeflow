@@ -10,6 +10,7 @@ struct AppContextServiceTests {
         testQwenCleanupDisablesReasoning()
         ProviderPresetTests.run()
         GrokProviderTests.run()
+        RecordingStopOrderTests.run()
         print("AppContextServiceTests passed")
     }
 

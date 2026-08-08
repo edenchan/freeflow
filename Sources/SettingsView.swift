@@ -1286,7 +1286,7 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Preserve exact wording", isOn: $appState.preserveExactWording)
 
-            Text("When on, \(AppName.displayName) skips the LLM cleanup step and pastes the transcript verbatim — filler words, informal phrasing, and explicit language are all preserved. Voice macros and Edit Mode still run.")
+            Text("Default is on: paste the raw transcript with no LLM cleanup. Turn off to run cleanup. Voice macros and Edit Mode still run.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

@@ -77,7 +77,9 @@ test: $(TEST_RUNNER)
 TEST_SOURCES = \
 	Sources/AppContextService.swift \
 	Sources/AppName.swift \
+	Sources/AudioRecorder.swift \
 	Sources/KeychainStorage.swift \
+	Sources/LiveAudioLevelNormalizer.swift \
 	Sources/LLMAPITransport.swift \
 	Sources/ModelConfiguration.swift \
 	Sources/Providers/Grok.swift \
@@ -92,7 +94,8 @@ TEST_SOURCES = \
 	Sources/TranscriptionService.swift \
 	Tests/AppContextServiceTests.swift \
 	Tests/GrokProviderTests.swift \
-	Tests/ProviderPresetTests.swift
+	Tests/ProviderPresetTests.swift \
+	Tests/RecordingStopOrderTests.swift
 
 $(TEST_RUNNER): $(TEST_SOURCES)
 	@mkdir -p "$(BUILD_DIR)"

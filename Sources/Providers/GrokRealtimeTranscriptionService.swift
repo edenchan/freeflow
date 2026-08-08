@@ -40,7 +40,7 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
 
     private let stateQueue = DispatchQueue(label: "com.zachlatta.freeflow.grok.realtime.state")
     private var isReady = false
-    private var pendingAudio = Data()
+    private var pendingChunks: [Data] = []
     private var commitSent = false
     private var closed = false
     private var terminalError: Error?
@@ -112,7 +112,8 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
             if isReady, let task {
                 frameToSend = (task, data)
             } else {
-                pendingAudio.append(data)
+                if pendingChunks.count == 1024 { pendingChunks.removeFirst() }
+                pendingChunks.append(data)
             }
         }
         if let (task, payload) = frameToSend {
@@ -130,17 +131,16 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
             throw RealtimeTranscriptionError.notConnected
         }
 
-        let leftover: Data = stateQueue.sync {
-            let leftover = pendingAudio
-            pendingAudio = Data()
+        let leftover: [Data] = stateQueue.sync {
+            let leftover = pendingChunks
+            pendingChunks = []
             commitSent = true
             return leftover
         }
-        if !leftover.isEmpty {
-            sendBinary(leftover, over: currentTask)
+        for chunk in leftover {
+            sendBinary(chunk, over: currentTask)
         }
 
-        sendJSON(["type": "Finalize"], over: currentTask)
         sendJSON(["type": "audio.done"], over: currentTask)
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -259,9 +259,9 @@ final class GrokRealtimeTranscriptionService: LiveTranscriptionSession {
             isReady = true
             readyCont = readyContinuation
             readyContinuation = nil
-            guard let task, !pendingAudio.isEmpty, !commitSent else { return }
-            frames.append((task, pendingAudio))
-            pendingAudio = Data()
+            guard let task, !pendingChunks.isEmpty, !commitSent else { return }
+            frames = pendingChunks.map { (task, $0) }
+            pendingChunks = []
         }
         readyCont?.resume()
         for (task, payload) in frames {

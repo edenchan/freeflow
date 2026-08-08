@@ -620,6 +620,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var pendingShortcutStartTask: Task<Void, Never>?
     private var pendingShortcutStartMode: RecordingTriggerMode?
     private var realtimeService: (any LiveTranscriptionSession)?
+    private var pendingRealtimeCommit: Task<String, Error>?
     private var automaticTerminationDisabled = false
     private var activeAudioInterruption: ActiveAudioInterruption?
     private var pendingOverlayDismissToken: UUID?
@@ -702,7 +703,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let preserveClipboard = UserDefaults.standard.object(forKey: preserveClipboardStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: preserveClipboardStorageKey)
-        let preserveExactWording = UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
+        let preserveExactWording = UserDefaults.standard.object(forKey: preserveExactWordingStorageKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
         let keepDictationInClipboardHistory = UserDefaults.standard.bool(forKey: keepDictationInClipboardHistoryStorageKey)
         let realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: realtimeStreamingEnabledStorageKey)
         let realtimeStreamingModel = providerConfiguration.realtimeStreamingModel
@@ -2306,7 +2309,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                 DispatchQueue.main.async {
                     guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
-                    self.startContextCapture()
+                    if self.currentSessionIntent.isCommandMode {
+                        self.startContextCapture()
+                    }
                     self.audioLevelCancellable = self.audioRecorder.$audioLevel
                         .receive(on: DispatchQueue.main)
                         .sink { [weak self] level in
@@ -2644,28 +2649,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Await the realtime WebSocket's final transcript. If it errors out (or
-    /// was never started) fall back to the file-based POST so the user still
-    /// gets a transcript. Runs the realtime commit and file upload in that
-    /// strict order to avoid paying for both when realtime succeeds.
+    /// Prefer the live commit started at capture-stop; file POST if it was never started or failed.
     private static func resolveRawTranscript(
-        realtimeService: (any LiveTranscriptionSession)?,
+        realtimeCommit: Task<String, Error>?,
         fileService: TranscriptionService,
         fileURL: URL
     ) async throws -> String {
-        if let realtimeService {
+        if let realtimeCommit {
             do {
-                try Task.checkCancellation()
-                return try await withTaskCancellationHandler {
-                    try await realtimeService.commitAndAwaitFinal()
-                } onCancel: {
-                    realtimeService.cancel()
-                }
+                return try await realtimeCommit.value
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                try Task.checkCancellation()
-                return try await fileService.transcribe(fileURL: fileURL)
+                os_log(.error, log: recordingLog, "realtime commit failed, falling back to file: %{public}@", error.localizedDescription)
             }
         }
         return try await fileService.transcribe(fileURL: fileURL)
@@ -2701,9 +2697,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
         errorMessage = nil
         playAlertSound(named: "Pop")
         overlayManager.showTranscribing()
-        audioRecorder.stopRecording { [weak self] fileURL in
+        let activeRealtime = self.realtimeService
+        self.realtimeService = nil
+        pendingRealtimeCommit?.cancel()
+        pendingRealtimeCommit = nil
+        audioRecorder.stopRecording(
+            onCaptureStopped: { [weak self] in
+                guard let self else { return }
+                self.audioRecorder.onPCM16Samples = nil
+                if let activeRealtime {
+                    self.pendingRealtimeCommit = Task {
+                        try await withTaskCancellationHandler {
+                            try await activeRealtime.commitAndAwaitFinal()
+                        } onCancel: {
+                            activeRealtime.cancel()
+                        }
+                    }
+                }
+            },
+            completion: { [weak self] fileURL in
             guard let self else { return }
             guard let fileURL else {
+                self.pendingRealtimeCommit?.cancel()
+                self.pendingRealtimeCommit = nil
+                activeRealtime?.cancel()
                 self.isTranscribing = false
                 self.audioRecorder.cleanup()
                 self.endCriticalDictationActivity()
@@ -2715,7 +2732,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
 
             guard self.isTranscribing else {
-                self.tearDownRealtimeService()
+                self.pendingRealtimeCommit?.cancel()
+                self.pendingRealtimeCommit = nil
+                activeRealtime?.cancel()
                 self.audioRecorder.cleanup()
                 self.refreshAvailableMicrophonesIfNeeded()
                 return
@@ -2727,23 +2746,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.statusText = "Transcribing..."
             self.debugStatusMessage = "Transcribing audio"
 
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
+            let postProcessingService = PostProcessingService(
+                apiKey: apiKey,
+                baseURL: apiBaseURL,
+                preferredModel: postProcessingModel,
+                preferredFallbackModel: postProcessingFallbackModel,
+                instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+            )
 
-            let activeRealtime = self.realtimeService
-            self.realtimeService = nil
-            self.audioRecorder.onPCM16Samples = nil
+            let realtimeCommit = self.pendingRealtimeCommit
+            self.pendingRealtimeCommit = nil
             self.transcriptionTask?.cancel()
             guard self.isTranscribing else {
                 if let savedAudioFile {
                     Self.deleteAudioFile(savedAudioFile.fileName)
                 }
                 self.transcribingAudioFileName = nil
+                realtimeCommit?.cancel()
                 activeRealtime?.cancel()
                 self.audioRecorder.cleanup()
                 self.endCriticalDictationActivity()
@@ -2756,12 +2775,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
                 do {
                     let transcriptionService = try self.makeTranscriptionService()
-                    async let transcript = Self.resolveRawTranscript(
-                        realtimeService: activeRealtime,
+                    let rawTranscript = try await Self.resolveRawTranscript(
+                        realtimeCommit: realtimeCommit,
                         fileService: transcriptionService,
                         fileURL: transcriptionFileURL
                     )
-                    let rawTranscript = try await transcript
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
                         pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
@@ -2936,6 +2954,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
         }
+        )
     }
 
     static func resolvedSystemPrompt(_ customSystemPrompt: String) -> String {
@@ -3011,6 +3030,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(.error, log: recordingLog, "failed to start realtime service: %{public}@", error.localizedDescription)
             return
         }
+        service.onPartialUpdate = { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self, self.isRecording || self.isTranscribing else { return }
+                self.debugStatusMessage = "Live: \(text)"
+            }
+        }
         realtimeService = service
         audioRecorder.onPCM16Samples = { [weak service] data in
             service?.appendPCM16(data)
@@ -3019,6 +3044,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func tearDownRealtimeService() {
         audioRecorder.onPCM16Samples = nil
+        pendingRealtimeCommit?.cancel()
+        pendingRealtimeCommit = nil
         realtimeService?.cancel()
         realtimeService = nil
     }

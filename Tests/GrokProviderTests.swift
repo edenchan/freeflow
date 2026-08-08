@@ -91,9 +91,19 @@ enum GrokProviderTests {
         expect(string.contains("sample_rate=24000"), "Missing sample_rate: \(string)")
         expect(string.contains("encoding=pcm"), "Missing encoding: \(string)")
         expect(string.contains("interim_results=true"), "Missing interim_results: \(string)")
+        expect(string.contains("endpointing=400"), "Missing endpointing: \(string)")
         expect(string.contains("filler_words=false"), "Missing filler_words: \(string)")
         expect(string.contains("language=en"), "Missing language: \(string)")
         expect(string.contains("keyterm=FreeFlow"), "Missing keyterm: \(string)")
+
+        let autoLanguage = GrokProvider.streamingWebSocketURL(
+            baseURL: "https://api.x.ai/v1",
+            language: "auto",
+            keyTerms: [],
+            includeFillerWords: false
+        )?.absoluteString ?? ""
+        expect(!autoLanguage.contains("language=auto"), "must never send language=auto: \(autoLanguage)")
+        expectEqual(GrokProvider.languageForAPI("ja"), "ja")
     }
 
     private static func testGrokModelsArePredefined() {

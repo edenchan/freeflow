@@ -10,6 +10,7 @@ struct GrokProvider: ProviderPreset {
     static let maxKeyTermLength = 50
     /// Match FreeFlow's realtime PCM tap (`AudioRecorder` emits 24 kHz PCM16).
     static let streamingSampleRate = 24_000
+    static let streamingEndpointingMs = 400
 
     /// Languages for which Grok STT accepts `format=true` (inverse text
     /// normalization of numbers, currencies, and units).
@@ -18,6 +19,19 @@ struct GrokProvider: ProviderPreset {
         "ja", "ko", "mk", "ms", "fa", "pl", "pt", "ro", "ru", "es", "sv",
         "th", "tr", "vi"
     ]
+
+    /// Grok STT rejects `auto`. Empty/auto → system locale if catalogued, else `en`.
+    static func languageForAPI(_ preferred: String?) -> String {
+        let trimmed = preferred?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty, trimmed.lowercased() != "auto" {
+            return trimmed
+        }
+        if let code = Locale.current.language.languageCode?.identifier,
+           formattingLanguages.contains(code) {
+            return code
+        }
+        return "en"
+    }
 
     static let llmModels = ["grok-4.5", "grok-4.3"]
     static let visionModels = ["grok-4.5"]
@@ -189,15 +203,14 @@ struct GrokProvider: ProviderPreset {
         components.path = path
 
         var queryItems = (components.queryItems ?? []).filter { item in
-            !["sample_rate", "encoding", "interim_results", "filler_words", "language", "keyterm"].contains(item.name)
+            !["sample_rate", "encoding", "interim_results", "filler_words", "language", "keyterm", "endpointing"].contains(item.name)
         }
         queryItems.append(URLQueryItem(name: "sample_rate", value: String(sampleRate)))
         queryItems.append(URLQueryItem(name: "encoding", value: "pcm"))
         queryItems.append(URLQueryItem(name: "interim_results", value: "true"))
+        queryItems.append(URLQueryItem(name: "endpointing", value: String(streamingEndpointingMs)))
         queryItems.append(URLQueryItem(name: "filler_words", value: includeFillerWords ? "true" : "false"))
-        if let language, !language.isEmpty {
-            queryItems.append(URLQueryItem(name: "language", value: language))
-        }
+        queryItems.append(URLQueryItem(name: "language", value: languageForAPI(language)))
         for term in keyTerms.prefix(maxKeyTerms) {
             let trimmedTerm = String(term.prefix(maxKeyTermLength))
             guard !trimmedTerm.isEmpty else { continue }
