@@ -8,6 +8,9 @@ struct AppContextServiceTests {
         testNonStrippingModelPreservesExistingBehavior()
         testDeprecatedGroqModelsAreNotPredefined()
         testQwenCleanupDisablesReasoning()
+        ProviderPresetTests.run()
+        GrokProviderTests.run()
+        RecordingStopOrderTests.run()
         print("AppContextServiceTests passed")
     }
 

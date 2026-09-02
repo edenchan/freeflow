@@ -335,7 +335,7 @@ struct ProviderSettingsFields: View {
                 "Stream audio while recording (realtime)",
                 isOn: $appState.realtimeStreamingEnabled
             )
-            Text("Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.")
+            Text("Streams audio while you speak using the selected provider's realtime transcription API.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -977,12 +977,14 @@ struct GeneralSettingsView: View {
 
     private var apiKeySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(AppName.displayName) uses the configured transcription model with your selected OpenAI-compatible provider.")
+            Text("Pick a provider, then paste one API key. FreeFlow uses it for transcription, cleanup, and context.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            ProviderPicker(selectionID: providerSelectionBinding)
+
             HStack(spacing: 8) {
-                SecureField("Enter your Groq API key", text: $apiKeyInput)
+                SecureField(appState.selectedProvider.keyPlaceholder, text: $apiKeyInput)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
                     .disabled(isValidatingKey)
@@ -1029,6 +1031,22 @@ struct GeneralSettingsView: View {
             }
             .padding(.top, 4)
         }
+    }
+
+    private var providerSelectionBinding: Binding<String> {
+        Binding(
+            get: { appState.selectedProviderID },
+            set: { id in
+                guard let provider = ProviderRegistry.provider(id: id) else { return }
+                appState.selectProvider(provider, currentKeyDraft: apiKeyInput)
+                apiBaseURLInput = appState.apiBaseURL
+                transcriptionAPIURLInput = appState.transcriptionAPIURL
+                transcriptionAPIKeyInput = appState.transcriptionAPIKey
+                apiKeyInput = appState.apiKey
+                keyValidationError = nil
+                keyValidationSuccess = false
+            }
+        )
     }
 
     private func validateAndSaveKey() {
@@ -1268,7 +1286,7 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Preserve exact wording", isOn: $appState.preserveExactWording)
 
-            Text("When on, \(AppName.displayName) skips the LLM cleanup step and pastes the transcript verbatim — filler words, informal phrasing, and explicit language are all preserved. Voice macros and Edit Mode still run.")
+            Text("Default is on: paste the raw STT transcript (no LLM). Grok still strips uh/um via filler_words=false. Turn off to also remove repeats and clean phrasing. Voice macros and Edit Mode still run.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1398,7 +1416,9 @@ struct GeneralSettingsView: View {
 
     private var vocabularySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Words and phrases to preserve during post-processing.")
+            Text(appState.selectedProviderID == GrokProvider.shared.id
+                 ? "Sent to Grok STT as keyterm hints (live and batch), and preserved in cleanup."
+                 : "Words and phrases to preserve during post-processing.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

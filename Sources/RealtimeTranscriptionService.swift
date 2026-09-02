@@ -19,12 +19,14 @@ enum RealtimeTranscriptionError: LocalizedError {
     }
 }
 
-final class RealtimeTranscriptionService {
+final class RealtimeTranscriptionService: LiveTranscriptionSession {
     struct Configuration {
         let baseURL: String
         let apiKey: String
         let model: String
         let language: String?
+        var keyTerms: [String] = []
+        var includeFillerWords: Bool = false
     }
 
     private let config: Configuration

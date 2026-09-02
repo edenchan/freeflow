@@ -15,7 +15,7 @@ private struct SetupProviderSettingsSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Advanced Provider Settings")
                     .font(.title2.weight(.semibold))
-                Text("Use these fields when pointing \(AppName.displayName) at another OpenAI-compatible provider or when you need custom model IDs.")
+                Text("Use these fields for a custom OpenAI-compatible server, or to mix providers. Groq and Grok (xAI) can be selected on the API Key step with one key.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -397,19 +397,21 @@ struct SetupView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Enter an API key for your OpenAI-compatible provider. If you are not using Groq, expand the advanced provider settings and enter that provider's base URL and model IDs before continuing.")
+                Text("Pick Groq or Grok (xAI), then paste one API key. FreeFlow uses it for transcription, cleanup, and context. Advanced settings are only needed for a custom or mixed provider.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(alignment: .leading, spacing: 10) {
+                    ProviderPicker(selectionID: setupProviderBinding)
+
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Using Groq?")
+                        Text(appState.selectedProvider.onboardingHeading)
                             .font(.subheadline.weight(.semibold))
                         VStack(alignment: .leading, spacing: 2) {
-                            instructionRow(number: "1", text: "Go to [console.groq.com/keys](https://console.groq.com/keys)")
-                            instructionRow(number: "2", text: "Create a free account (if you don't have one)")
-                            instructionRow(number: "3", text: "Click **Create API Key** and copy it")
+                            ForEach(Array(appState.selectedProvider.onboardingSteps.enumerated()), id: \.offset) { index, step in
+                                instructionRow(number: "\(index + 1)", text: LocalizedStringKey(step))
+                            }
                         }
                     }
                     .padding(10)
@@ -422,7 +424,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("API Key")
                             .font(.headline)
-                        SecureField("Paste your API key", text: $apiKeyInput)
+                        SecureField(appState.selectedProvider.keyPlaceholder, text: $apiKeyInput)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
                             .disabled(isValidatingKey)
@@ -1132,6 +1134,21 @@ struct SetupView: View {
     }
 
     // MARK: - Actions
+
+    private var setupProviderBinding: Binding<String> {
+        Binding(
+            get: { appState.selectedProviderID },
+            set: { id in
+                guard let provider = ProviderRegistry.provider(id: id) else { return }
+                appState.selectProvider(provider, currentKeyDraft: apiKeyInput)
+                apiBaseURLInput = appState.apiBaseURL
+                transcriptionAPIURLInput = appState.transcriptionAPIURL
+                transcriptionAPIKeyInput = appState.transcriptionAPIKey
+                apiKeyInput = appState.apiKey
+                keyValidationError = nil
+            }
+        )
+    }
 
     func validateAndContinue() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)

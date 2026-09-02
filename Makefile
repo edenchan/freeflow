@@ -13,6 +13,7 @@ APP_EXECUTABLE_TARGET := $(subst $(space),\ ,$(APP_EXECUTABLE))
 SOURCES = $(shell find Sources -name '*.swift' -type f | LC_ALL=C sort)
 TEST_RUNNER = $(BUILD_DIR)/FreeFlowTests
 RESOURCES = $(CONTENTS)/Resources
+GROK_MARK_ASSETS = Resources/GrokMark.png Resources/GrokMark@2x.png
 ARCH ?= $(shell uname -m)
 
 # Pick the icon source based on which bundle we are building. Dev builds get
@@ -30,7 +31,7 @@ endif
 
 all: $(APP_EXECUTABLE_TARGET)
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS)
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(GROK_MARK_ASSETS)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)"
 ifeq ($(ARCH),universal)
 	swiftc \
@@ -63,6 +64,7 @@ endif
 	@plutil -replace CFBundleExecutable -string "$(APP_NAME)" "$(CONTENTS)/Info.plist"
 	@plutil -replace CFBundleIdentifier -string "$(BUNDLE_ID)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/AppIcon.icns"
+	@cp $(GROK_MARK_ASSETS) "$(RESOURCES)/"
 	@plutil -replace NSMicrophoneUsageDescription -string "$(APP_NAME) needs microphone access to transcribe your speech." "$(CONTENTS)/Info.plist"
 	@plutil -replace NSSpeechRecognitionUsageDescription -string "$(APP_NAME) needs speech recognition to convert your voice to text." "$(CONTENTS)/Info.plist"
 	@plutil -replace NSAccessibilityUsageDescription -string "$(APP_NAME) needs accessibility access to detect the text cursor position and paste transcribed text." "$(CONTENTS)/Info.plist"
@@ -72,14 +74,37 @@ endif
 test: $(TEST_RUNNER)
 	@$(TEST_RUNNER)
 
-$(TEST_RUNNER): Sources/AppContextService.swift Sources/LLMAPITransport.swift Sources/ModelConfiguration.swift Tests/AppContextServiceTests.swift
+TEST_SOURCES = \
+	Sources/AppContextService.swift \
+	Sources/AppName.swift \
+	Sources/AudioRecorder.swift \
+	Sources/KeychainStorage.swift \
+	Sources/LiveAudioLevelNormalizer.swift \
+	Sources/LLMAPITransport.swift \
+	Sources/ModelConfiguration.swift \
+	Sources/Providers/Grok.swift \
+	Sources/Providers/GrokRealtimeTranscriptionService.swift \
+	Sources/Providers/Groq.swift \
+	Sources/Providers/LiveTranscriptionSession.swift \
+	Sources/Providers/ProviderConfiguration.swift \
+	Sources/Providers/ProviderPreset.swift \
+	Sources/Providers/ProviderRegistry.swift \
+	Sources/Providers/ProviderSettingsStore.swift \
+	Sources/RealtimeTranscriptionService.swift \
+	Sources/TranscriptionService.swift \
+	Tests/AppContextServiceTests.swift \
+	Tests/GrokProviderTests.swift \
+	Tests/ProviderPresetTests.swift \
+	Tests/RecordingStopOrderTests.swift
+
+$(TEST_RUNNER): $(TEST_SOURCES)
 	@mkdir -p "$(BUILD_DIR)"
 	swiftc \
 		-parse-as-library \
 		-o "$(TEST_RUNNER)" \
 		-sdk $(shell xcrun --show-sdk-path) \
 		-target $(ARCH)-apple-macosx13.0 \
-		Sources/AppContextService.swift Sources/LLMAPITransport.swift Sources/ModelConfiguration.swift Tests/AppContextServiceTests.swift
+		$(TEST_SOURCES)
 
 icon: $(ICON_ICNS)
 
